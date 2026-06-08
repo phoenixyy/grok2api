@@ -381,6 +381,9 @@ async def generate(
 
                 final = make_stream_chunk(response_id, model, "", is_final=True)
                 yield f"data: {orjson.dumps(final).decode()}\n\n"
+                if moderated_count:
+                    meta = {"moderated_count": moderated_count}
+                    yield f"data: {orjson.dumps(meta).decode()}\n\n"
                 yield "data: [DONE]\n\n"
                 success = True
             except BaseException as exc:
@@ -402,6 +405,7 @@ async def generate(
     reasoning_updates: list[str] = []
     progress_map: dict[object, int] = {}
     completed_ids: set[object] = set()
+    moderated_count: int = 0
     success = False
     fail_exc: BaseException | None = None
     try:
@@ -417,6 +421,7 @@ async def generate(
                 raise UpstreamError(f"Image generation failed: {ev.get('error', 'unknown')}")
             if ev_type == "moderated":
                 logger.warning("image generation slot moderated: image_id={}", ev.get("image_id", "")[:8])
+                moderated_count += 1
                 continue
             if ev_type == "progress":
                 key = ev.get("image_id") or f"progress-{len(progress_map)}"
@@ -478,7 +483,10 @@ async def generate(
         else {"url": image.api_value}
         for image in finals
     ]
-    return {"created": int(time.time()), "data": data}
+    resp: dict = {"created": int(time.time()), "data": data}
+    if moderated_count:
+        resp["moderated_count"] = moderated_count
+    return resp
 
 
 # ---------------------------------------------------------------------------
